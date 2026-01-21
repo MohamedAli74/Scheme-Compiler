@@ -129,7 +129,22 @@ L_code_ptr_return:
 ;;; r8 : params
 ;;; r9 : | env |
 extend_lexical_environment:
-;;; fill in for final project
+        mov rcx, r8
+        lea rdi, [rcx * 8]
+        call malloc
+        lea rsi, [rbp + 8*4]    ;; source
+        lea rdi, [rax]          ;; new Env pointer
+        cld
+        rep movsq               ;; copy old env into the new pointer
+        mov r10, rax
+        lea rdi, [r9*8 +8*1]     ;; size of new env
+        call malloc
+        mov qword [rax],  r10 ;; new env pointer
+        mov rsi, qword [rbp + 8*2]
+        lea rdi, [rax + 8] ;; new lexical env
+        mov rcx, r9
+        cld
+        rep movsq
         ret
 
 ;;; fixing the stack
@@ -939,8 +954,44 @@ L_code_ptr_lognot:
         ret AND_KILL_FRAME(1)
 
 L_code_ptr_bin_apply:
-;;; fill in for final project
-	ret
+        cmp qword [rsp + 8*2], 2
+        jne L_error_arg_count_2
+        mov r8, qword [rsp + 8*3]       ;; the procedure [arg 0]
+        assert_closure(r8)
+        lea r9, [rsp + 8*4]             ;; the address of the arg list [arg 1]
+        mov r10, qword [r9]             ;; the arg list
+        mov r11, [rsp]                  ;; the return address
+        mov rcx, 0
+        mov rsi, r10
+    .L_list_length:
+        cmp byte [rsi], T_nil
+        je .L_list_length_done
+        assert_pair(rsi)
+        inc rcx
+        mov rdi, SOB_PAIR_CDR(rsi)
+        jmp .L_list_length
+    .L_list_length_done:
+        lea rbx, [8 * (rcx - 2)]     
+        sub rsp, rbx                    ;; Move Stack Pointer DOWN to make room for N arguments
+        mov rdi, rsp                    ;; rdi = dest (top of the stack)                   
+        mov rsi, r11                    ;; rsi = source (the return address)
+        cld
+        movsq                           ;; copy the return address into the top of the stack and update the pointer
+        mov rsi, r8+1                 ;; rsi = src (lexical env)
+        movsq                           ;; copy the lexical environment into the stack and update the pointer
+        mov rsi, rcx                    ;; rsi = src (number of args)
+        movsq                           ;; copy the number of args into the stack and update the pointer
+    .L_copy_args:
+        cmp rcx, 0
+        je .L_args_copied
+        mov rsi, SOB_PAIR_CAR(r10)      ;;car of the arg list
+        movsq                           ;; copy the argument into the stack and update the pointer     
+        mov r10, SOB_PAIR_CDR(r10)      ;;the iteration step
+        dec rcx
+        jmp .L_copy_args
+    .L_args_copied:
+        jmp [r8 + 1 + 1 * 8 ]
+
 
 L_code_ptr_is_null:
         enter 0, 0
