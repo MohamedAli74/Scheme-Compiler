@@ -12,8 +12,8 @@
 
 #use "pc.ml";;
 
-
 exception X_not_yet_implemented of string;;
+
 let list_and_last =
   let rec run a = function
     | [] -> ([], a)
@@ -669,35 +669,44 @@ module Tag_Parser : TAG_PARSER = struct
                    ScmNil)),
              ScmPair (ScmPair (ScmSymbol "y", ScmNil), ScmNil)));;
 
-  let rec macro_expand_qq = function
-
-             | ScmPair (ScmSymbol "unquote", ScmPair (sexpr, ScmNil)) -> sexpr (*          `(,sexpr)             *)
-           
-             | ScmPair (ScmSymbol "unquote-splicing", _) ->                    (*           `(,@ _ )             *)
-               raise (X_syntax "unquote-splicing not in list context")
-           
-             | ScmPair (ScmPair (ScmSymbol "unquote-splicing", ScmPair (sexpr, ScmNil)), cdr) -> 
-               let expanded_cdr = macro_expand_qq cdr in                       (*        `( ,@sexpr cdr)         *)
-               ScmPair (ScmSymbol "append",
-                        ScmPair (sexpr, ScmPair (expanded_cdr, ScmNil)))  
-           
-             | ScmPair (car, cdr) ->                                           (*          `(car . cdr)           *)
-               let expanded_car = macro_expand_qq car in
-               let expanded_cdr = macro_expand_qq cdr in
-               ScmPair (ScmSymbol "cons",
-                        ScmPair (expanded_car, ScmPair (expanded_cdr, ScmNil)))
-             
-             | ScmVector sexprs ->                                             (*          `#(sexpr ...)           *)
-               let expanded_sexprs = List.fold_right (fun sexpr acc -> ScmPair (sexpr, acc)) sexprs ScmNil in
-               let expanded_list = macro_expand_qq expanded_sexprs in
-               ScmPair (ScmSymbol "list->vector", ScmPair (
-               expanded_list, ScmNil))
-             
-             | sexpr ->                                                        (*             `sexpr               *)
-               ScmPair (ScmSymbol "quote", ScmPair (sexpr, ScmNil));;
-
-  
-
+  let rec macro_expand_qq = fun sexpr ->
+  match sexpr with
+  | ScmVoid | ScmBoolean _ | ScmChar _ | ScmString _ | ScmNumber _ ->
+       sexpr
+  | ScmPair (ScmSymbol "unquote", ScmPair (sexpr, ScmNil)) ->
+     sexpr
+  | ScmPair (ScmSymbol "unquote-splicing", ScmPair (sexpr, ScmNil)) ->
+    ScmPair (ScmSymbol "quote",
+             ScmPair (ScmPair (ScmSymbol "unquote-splicing",
+                               ScmPair (sexpr, ScmNil)),
+                      ScmNil))
+  | ScmNil -> 
+      ScmPair (ScmSymbol "quote", ScmPair (ScmNil, ScmNil))
+  | (ScmSymbol _)  as sexpr ->
+      ScmPair (ScmSymbol "quote", ScmPair (sexpr, ScmNil))
+  | ScmVector sexprs ->
+      let elements = scheme_list_of_ocaml_list sexprs ScmNil in
+      let qqed_elements = macro_expand_qq elements in
+      ScmPair (ScmSymbol "list->vector",
+                ScmPair (qqed_elements, ScmNil)
+               
+      )
+  | ScmPair (car, cdr) -> match car with
+    | ScmPair (ScmSymbol "unquote-splicing", ScmPair (sexpr, ScmNil)) ->
+      let rest = macro_expand_qq cdr in
+      (match rest with
+       | ScmPair (ScmSymbol "quote", ScmPair (ScmNil, ScmNil)) ->
+           sexpr                    
+       | _ ->
+           ScmPair (ScmSymbol "append",
+                    ScmPair (sexpr, ScmPair (rest, ScmNil))))
+    | _ -> 
+        ScmPair (ScmSymbol "cons",
+                 ScmPair (macro_expand_qq car,
+                          ScmPair (macro_expand_qq cdr,
+                                    ScmNil)))
+  | _ ->
+      raise (X_syntax "Malformed quasiquote");;
 
   let rec macro_expand_and_clauses expr = function
     | [] -> expr
@@ -708,103 +717,33 @@ module Tag_Parser : TAG_PARSER = struct
                          ScmPair (dit,
                                   ScmPair (ScmBoolean false,
                                            ScmNil))));;
-                                           let rec macro_expand_cond_ribs = function
-                                           | ScmNil -> ScmVoid
-                                         
-                                           (* (else e1 e2 ...) *)
-                                           | ScmPair (ScmPair (ScmSymbol "else", exprs), ScmNil) ->
-                                               let (es, last) = scheme_list_to_ocaml exprs in
-                                               if last <> ScmNil then
-                                                 raise (X_syntax "cond: else must be a proper list");
-                                               (match es with
-                                                | [] -> ScmVoid
-                                                | [e] -> e
-                                                | _ ->
-                                                    ScmPair
-                                                      (ScmSymbol "begin",
-                                                       scheme_list_of_ocaml_list es ScmNil))
-                                         
-                                           | ScmPair (ScmPair (ScmSymbol "else", _), _) ->
-                                               raise (X_syntax "cond: else must be last")
-                                         
-                                           (* (test => proc) *)
-                                           | ScmPair
-                                               (ScmPair
-                                                  (test,
-                                                   ScmPair (ScmSymbol "=>", ScmPair (proc, ScmNil))),
-                                                rest) ->
-                                         
-                                               let rest_exp = macro_expand_cond_ribs rest in
-                                         
-                                               ScmPair
-                                                 (ScmSymbol "let",
-                                                  ScmPair
-                                                    (
-                                                      scheme_list_of_ocaml_list
-                                                        [
-                                                          ScmPair (ScmSymbol "value", ScmPair (test, ScmNil));
-                                         
-                                                          ScmPair
-                                                            (ScmSymbol "f",
-                                                             ScmPair
-                                                               (ScmPair
-                                                                  (ScmSymbol "lambda",
-                                                                   ScmPair (ScmNil, ScmPair (proc, ScmNil))),
-                                                                ScmNil));
-                                         
-                                                          ScmPair
-                                                            (ScmSymbol "rest",
-                                                             ScmPair
-                                                               (ScmPair
-                                                                  (ScmSymbol "lambda",
-                                                                   ScmPair (ScmNil, ScmPair (rest_exp, ScmNil))),
-                                                                ScmNil))
-                                                        ]
-                                                        ScmNil,
-                                                      ScmPair
-                                                        (
-                                                          ScmPair
-                                                            (ScmSymbol "if",
-                                                             ScmPair
-                                                               (ScmSymbol "value",
-                                                                ScmPair
-                                                                  (ScmPair
-                                                                     (ScmPair (ScmSymbol "f", ScmNil),
-                                                                      ScmPair (ScmSymbol "value", ScmNil)),
-                                                                   ScmPair
-                                                                     (ScmPair (ScmSymbol "rest", ScmNil),
-                                                                      ScmNil)))),
-                                                          ScmNil
-                                                        )
-                                                    )
-                                                 )
-                                         
-                                           (* (test e1 e2 ...) *)
-                                           | ScmPair (ScmPair (test, exprs), rest) ->
-                                               let (es, last) = scheme_list_to_ocaml exprs in
-                                               if last <> ScmNil then
-                                                 raise (X_syntax "cond: expressions must be a proper list");
-                                               let then_expr =
-                                                 match es with
-                                                 | [] -> ScmVoid
-                                                 | [e] -> e
-                                                 | _ ->
-                                                     ScmPair
-                                                       (ScmSymbol "begin",
-                                                        scheme_list_of_ocaml_list es ScmNil)
-                                               in
-                                               ScmPair
-                                                 (ScmSymbol "if",
-                                                  ScmPair
-                                                    (test,
-                                                     ScmPair
-                                                       (then_expr,
-                                                        ScmPair (macro_expand_cond_ribs rest, ScmNil))))
-                                         
-                                           | _ -> raise (X_syntax "cond: malformed cond")
-                                         
-                                         
 
+  let rec macro_expand_cond_ribs = function
+    | ScmNil ->
+       ScmVoid
+    | ScmPair (rib, ribs) -> match rib with
+    | ScmPair (ScmSymbol "else", exprs) ->
+       ScmPair (ScmSymbol "begin", exprs)
+    | ScmPair (test, ScmPair (ScmSymbol "=>", ScmPair (f, ScmNil))) ->
+       ScmPair(ScmSymbol "let", ScmPair(ScmPair(ScmPair
+       (ScmSymbol "value", ScmPair(test, ScmNil)), 
+       ScmPair(ScmPair(ScmSymbol "f", ScmPair(ScmPair(ScmSymbol "lambda", 
+       ScmPair(ScmNil, ScmPair(f, ScmNil))), ScmNil)), ScmPair(ScmPair(ScmSymbol "rest", 
+       ScmPair(ScmPair(ScmSymbol "lambda", ScmPair(ScmNil, 
+       ScmPair(macro_expand_cond_ribs ribs, ScmNil))), ScmNil)), ScmNil))), 
+       ScmPair(ScmPair(ScmSymbol "if", ScmPair(ScmSymbol "value", 
+        ScmPair(ScmPair(ScmPair(ScmSymbol "f", ScmNil), 
+       ScmPair(ScmSymbol "value", ScmNil)), 
+       ScmPair(ScmPair(ScmSymbol "rest", ScmNil), ScmNil)))), ScmNil)))
+    | ScmPair (test, exprs) ->
+       ScmPair (ScmSymbol "if",
+                ScmPair (test,
+                         ScmPair (ScmPair (ScmSymbol "begin", exprs),
+                                  ScmPair (macro_expand_cond_ribs ribs,
+                                           ScmNil))))
+    | _ ->
+       raise (X_syntax "Malformed cond ribs");;
+    
 
   let is_list_of_unique_names =
     let rec run = function
@@ -823,7 +762,7 @@ module Tag_Parser : TAG_PARSER = struct
        tag_parse (macro_expand_qq sexpr)
     | ScmSymbol var ->
        if (is_reserved_word var)
-       then raise (X_syntax "Variable cannot be a reserved word")
+       then raise (X_syntax "Variable cannot be a reserved word") 
        else ScmVarGet(Var var)
     | ScmPair (ScmSymbol "if",
                ScmPair (test, ScmPair (dit, ScmNil))) ->
@@ -908,7 +847,7 @@ module Tag_Parser : TAG_PARSER = struct
          scheme_list_of_ocaml_list
            (List.map (function
                 | ScmPair (var, ScmPair (_, ScmNil)) -> var
-                | _ -> raise (X_syntax "invalid lambda-rib structure"))
+                | e -> (begin Printf.printf "%s" (string_of_sexpr e) ; raise (X_syntax "invalid lambda-rib structure") end))
               ribs) ScmNil in
        let args =
          scheme_list_of_ocaml_list
@@ -2184,32 +2123,55 @@ module Code_Generation : CODE_GENERATION = struct
          ^ "\tpush qword [rax + 1]\n"       (* Push Env (bytes 1-8 of the closure object)*)
          ^ "\tcall qword [rax + 1 + 8]\n"   (* Call (Callee cleans stack!) (the code pointer is bytes 9-16 of the closure object ) *)
       | ScmApplic' (proc, args, Tail_Call) -> 
-         let args_code =
+         
+        let args_code =
          String.concat ""
          (List.map
-         (fun arg ->
-         let arg_code = run params env arg in
-         arg_code
-         ^ "\tpush rax\n")
-         (List.rev args)) in
+          (fun arg ->
+            let arg_code = run params env arg in
+            arg_code
+            ^ "\tpush rax\n")
+          (List.rev args)) in
+         
          let proc_code = run params env proc in
-         let n = List.length args in
-         args_code                          
-         ^ (Printf.sprintf "\tpush %d\n" n) 
+         
+         let label_recycle_frame_loop = make_tc_applic_recycle_frame_loop () in
+         let label_recycle_frame_done = make_tc_applic_recycle_frame_done () in
+         
+         args_code            
+         ^ (Printf.sprintf "\tpush %d\n" (List.length args)) 
+         
          ^ proc_code                        
          ^ "\tassert_closure(rax)\n"        
-         ^ "\tpush qword [rax + 1]\n" 
+         
+         ^ "\tpush qword [rax + 1]\n"  (* Push Env into the stack*)
          ^ "\tpush qword [rbp + 8*1]\n" (* Push old return address *)
-         ^ "\tmov r9 qword [rbp + 8*3]" (* number of args in current frame *)
+         ^ "\tpush qword [rbp + 8*0]\n" (* Push old rbp *)
+         
+         ^ (Printf.sprintf "\tmov rcx, %d + 4\n" (List.length args)) (*slots to copy - n args + counter + lex + ret + rbp*)
+         ^ "\tmov rbx, qword [rbp + 8 * 3]\n" (* rbx = number of argumnets in the current frame *)
+         ^ "\tlea rbx, [rbp + 8 * rbx + 8 * 3]\n" (* rbx = top of current frame*)
+         ^ "\tlea rdx, [rbp - 8 * 1]\n"     (* rdx = top of new frame *)
+        
+      (*.LOOP*)
+         ^ (Printf.sprintf "%s:\n" label_recycle_frame_loop)
+         ^ "\tcmp rcx, 0\n"
+         (*JMP .DONE*)
+         ^ (Printf.sprintf "\tje %s\n" label_recycle_frame_done)
+         ^ "\tmov rsi, qword [rdx]\n" 
+         ^ "\tmov qword [rbx], rsi\n"
+         ^ "\tdec rcx\n"
+         ^ "\tsub rbx, 8 * 1\n"
+         ^ "\tsub rdx, 8 * 1\n"
+         (*JMP .LOOP*)
+         ^ (Printf.sprintf "\tjmp %s\n" label_recycle_frame_loop)
+        
+      (*.DONE*)
+         ^ (Printf.sprintf "%s:\n" label_recycle_frame_done)
+         ^ "\tlea rsp, [rbx + 8 * 1]\n"(*rsp = the top of the new frame *)
+         ^ "\tpop rbp\t;\n"(*restore rbp*)
+         ^ "\tjmp [rax + 1 + 8 * 1]\n"
 
-         ^ "\tlea rsi, [rsp + 8*(r9-1)]\n"         (* rsi = Top of new frame (Old Ret) *)
-         ^ "\tlea rdi, [rbp + 8*1]\n"              (* rdi = Top of old frame (Old Ret) *)
-
-         ^ (Printf.sprintf "\tmov rcx, %d\n" (n + 3))
-         ^ "\tstd\n"
-         ^ "\trep movsq\n" 
-         ^ "\tmov rbp, qword [rbp]\n"     (* Set rbp to old frame pointer *)
-         ^ "\tcall qword [rax + 1 + 8]\n" 
 
     and runs params env exprs' =
       List.map (fun expr' -> run params env expr') exprs' in
