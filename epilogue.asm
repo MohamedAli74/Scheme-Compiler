@@ -968,24 +968,24 @@ L_code_ptr_bin_apply:
         je .L_list_length_done
         assert_pair(rsi)
         inc rcx
-        mov rdi, SOB_PAIR_CDR(rsi)
+        mov rsi, SOB_PAIR_CDR(rsi)      ;;TODO: check if we need to move into rsi or rdi
         jmp .L_list_length
     .L_list_length_done:
         lea rbx, [8 * (rcx - 2)]     
         sub rsp, rbx                    ;; Move Stack Pointer DOWN to make room for N arguments
         mov rdi, rsp                    ;; rdi = dest (top of the stack)                   
-        mov rsi, r11                    ;; rsi = source (the return address)
+        mov rax, r11                    ;; rax = src (the return address)
         cld
-        movsq                           ;; copy the return address into the top of the stack and update the pointer
-        mov rsi, r8+1                 ;; rsi = src (lexical env)
-        movsq                           ;; copy the lexical environment into the stack and update the pointer
-        mov rsi, rcx                    ;; rsi = src (number of args)
-        movsq                           ;; copy the number of args into the stack and update the pointer
+        stosq                           ;; copy the return address into the top of the stack and update the pointer
+        mov rax, qword [r8+1]           ;; rax = src (lexical env)
+        stosq                           ;; copy the lexical environment into the stack and update the pointer
+        mov rax, rcx                    ;; rax = src (number of args)
+        stosq                           ;; copy the number of args into the stack and update the pointer
     .L_copy_args:
         cmp rcx, 0
         je .L_args_copied
-        mov rsi, SOB_PAIR_CAR(r10)      ;;car of the arg list
-        movsq                           ;; copy the argument into the stack and update the pointer     
+        mov rax, SOB_PAIR_CAR(r10)      ;; Load Value (e.g., 5) into RAX
+        stosq                          ;; copy the argument into the stack and update the pointer     
         mov r10, SOB_PAIR_CDR(r10)      ;;the iteration step
         dec rcx
         jmp .L_copy_args
