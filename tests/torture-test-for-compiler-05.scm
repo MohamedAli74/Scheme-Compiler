@@ -25,3 +25,4 @@
 	   (not (eq? g3 (f (f (f (f (f g3)))))))
 	   (eq? (f (f g2))
 		(f (f (f (f (f (f (f (f g2)))))))))))))
+(test)
